@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Roteador Automático (OSRM)</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div id="map"></div>
+
+    <div class="panel">
+        <h1>🗺️ Roteador Automático</h1>
+        <p class="subtitle">Digite <strong>rua/avenida</strong> · <kbd>Tab</kbd> completa · <kbd>Enter</kbd> seleciona</p>
+
+        <div class="input-wrap">
+            <div class="input-row">
+                <span class="dot a">A</span>
+                <div class="input-with-ghost">
+                    <span class="ghost" id="ghostA" aria-hidden="true"></span>
+                    <input id="inputOrigem" type="text" placeholder="Origem: rua, avenida…" autocomplete="off" />
+                </div>
+                <button class="icon-btn" id="geoBtn" title="Usar minha localização">📍</button>
+            </div>
+            <div class="suggestions" id="sugA" hidden></div>
+        </div>
+
+        <div class="input-wrap">
+            <div class="input-row">
+                <span class="dot b">B</span>
+                <div class="input-with-ghost">
+                    <span class="ghost" id="ghostB" aria-hidden="true"></span>
+                    <input id="inputDestino" type="text" placeholder="Destino: rua, avenida…" autocomplete="off" />
+                </div>
+            </div>
+            <div class="suggestions" id="sugB" hidden></div>
+        </div>
+
+        <div class="steps">
+            <div class="step start active" id="stepStart"><div class="sdot">A</div><span>Definir Origem</span></div>
+            <div class="step end" id="stepEnd"><div class="sdot">B</div><span>Definir Destino</span></div>
+        </div>
+
+        <!-- 🔥 BOTÕES DE TRANSPORTE (Certifique-se que o data-mode está aí) -->
+        <div class="mode-selector">
+            <button class="mode-btn active" data-mode="driving">🚗 Carro</button>
+            <button class="mode-btn" data-mode="motorcycle">🏍️ Moto</button>
+            <button class="mode-btn" data-mode="foot">🚶 A pé</button>
+        </div>
+
+        <div class="actions">
+            <button class="btn" id="routeBtn" disabled>Calcular Rota</button>
+            <button class="btn secondary" id="swapBtn" title="Inverter origem e destino">⇅</button>
+        </div>
+
+        <div class="status" id="status">Digite uma rua/avenida ou clique no mapa para marcar a <strong>origem (A)</strong>.</div>
+
+        <div class="info" id="info" hidden>
+            <div><span>Distância</span><strong id="dist">—</strong></div>
+            <div><span>Tempo</span><strong id="dur">—</strong></div>
+            <div><span>Custo Est.</span><strong id="cost">—</strong></div>
+        </div>
+
+        <button class="btn secondary block" id="resetBtn" disabled>Limpar Rota</button>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="script.js"></script>
+</body>
+</html>
