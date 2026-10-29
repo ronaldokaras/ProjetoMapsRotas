@@ -1,18 +1,57 @@
 /* ================= CONFIGURAÇÃO DO SUPABASE ================= */
-// COLOQUE SUAS CHAVES AQUI!
 const SUPABASE_URL = 'https://lccwcadkhetxllmpcobw.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjY3djYWRraGV0eGxsbXBjb2J3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMyMTg4MzksImV4cCI6MjEwODc5NDgzOX0';
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ================= MAPA ================= */
-const map = L.map('map').setView([-25.4284, -49.2733], 14);
+const map = L.map('map', { zoomControl: false }).setView([-25.4284, -49.2733], 14);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+
+// Zoom à direita (no desktop, top-left fica escondido atrás da sidebar)
+L.control.zoom({ position: 'topright' }).addTo(map);
+
+// Garantir sizing correto após o layout do grid
+setTimeout(() => map.invalidateSize(), 200);
+window.addEventListener('resize', () => map.invalidateSize());
+
+/* ================= BOTTOM SHEET (mobile) ================= */
+const panelEl = document.getElementById('panel');
+const sheetHandle = document.getElementById('sheetHandle');
+const isMobileViewport = () => window.matchMedia('(max-width: 768px)').matches;
+
+let sheetDragStart = 0;
+let sheetMoved = false;
+
+sheetHandle.addEventListener('pointerdown', e => {
+    sheetDragStart = e.clientY;
+    sheetMoved = false;
+    sheetHandle.setPointerCapture(e.pointerId);
+});
+sheetHandle.addEventListener('pointermove', e => {
+    if (Math.abs(e.clientY - sheetDragStart) > 5) sheetMoved = true;
+});
+sheetHandle.addEventListener('pointerup', e => {
+    if (!isMobileViewport()) return;
+    const delta = e.clientY - sheetDragStart;
+    if (sheetMoved && Math.abs(delta) > 40) {
+        panelEl.classList.toggle('collapsed', delta > 0);
+    } else if (!sheetMoved) {
+        panelEl.classList.toggle('collapsed');
+    }
+});
+
+// Ao focar um input no mobile, expandir o sheet
+document.querySelectorAll('.panel input').forEach(inp => {
+    inp.addEventListener('focus', () => {
+        if (isMobileViewport()) panelEl.classList.remove('collapsed');
+    });
+});
 
 /* ================= ESTADO ================= */
 let startPoint = null, endPoint = null;
 let startMarker = null, endMarker = null, routeLayer = null;
 let loading = false;
-let currentMode = 'driving'; // 'driving', 'motorcycle', 'foot'
+let currentMode = 'driving';
 
 /* ================= UI ================= */
 const statusEl   = document.getElementById('status');
@@ -62,7 +101,6 @@ function syncInputs() {
 function clearRoute() { if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; } infoEl.hidden = true; distEl.textContent = '—'; durEl.textContent  = '—'; costEl.textContent = '—'; }
 
 /* ================= NOMINATIM (Busca) ================= */
-const ROAD_TYPES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified', 'service', 'living_street', 'pedestrian']);
 function isStreetFeature(f) { const p = f.properties || {}; return p.osm_key === 'highway' || (p.osm_key === 'place' && p.osm_value === 'house'); }
 function getStreetName(p) { return p.street || p.name || ''; }
 function getCompletionName(p) { const s = getStreetName(p); return p.housenumber ? `${s} ${p.housenumber}` : s; }
@@ -216,8 +254,6 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
         document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentMode = btn.dataset.mode;
-        
-        // Se já tiver pontos no mapa, recalcula automaticamente
         if (startPoint && endPoint) calcularRota();
     });
 });
@@ -226,10 +262,19 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
 function calcularCusto(mode, distanciaMetros, duracaoSegundos) {
     const km = distanciaMetros / 1000;
     const min = duracaoSegundos / 60;
-    
     if (mode === 'foot') return 0;
     if (mode === 'motorcycle') return 3.00 + (km * 0.80) + (min * 0.15);
     return 5.00 + (km * 1.50) + (min * 0.30);
+}
+
+/* ================= FIT BOUNDS ADAPTATIVO ================= */
+function fitRouteToViewport() {
+    if (!routeLayer) return;
+    if (isMobileViewport()) {
+        map.fitBounds(routeLayer.getBounds(), { paddingTopLeft: [40, 40], paddingBottomRight: [40, 130] });
+    } else {
+        map.fitBounds(routeLayer.getBounds(), { paddingTopLeft: [400, 60], paddingBottomRight: [60, 60] });
+    }
 }
 
 /* ================= CÁLCULO DE ROTA ================= */
@@ -241,7 +286,7 @@ async function calcularRota() {
     let fonteRota = "";
     let distanciaFinal = 0;
     let duracaoFinal = 0;
-    
+
     const cores = { driving: '#16a34a', motorcycle: '#ea580c', foot: '#9333ea' };
     const corRota = cores[currentMode];
 
@@ -256,14 +301,13 @@ async function calcularRota() {
             routeLayer = L.geoJSON(data.geometry, {
                 style: { color: corRota, weight: 6, opacity: 0.85, lineCap: 'round', lineJoin: 'round' }
             }).addTo(map);
-            
+
             distanciaFinal = data.distance;
-            
-            // Cálculo customizado baseado na velocidade de cada meio
-            if (currentMode === 'foot') duracaoFinal = distanciaFinal / 1.4; // ~5 km/h
-            else if (currentMode === 'motorcycle') duracaoFinal = distanciaFinal / 16.6; // ~60 km/h
-            else duracaoFinal = distanciaFinal / 13.8; // ~50 km/h
-            
+
+            if (currentMode === 'foot') duracaoFinal = distanciaFinal / 1.4;
+            else if (currentMode === 'motorcycle') duracaoFinal = distanciaFinal / 16.6;
+            else duracaoFinal = distanciaFinal / 13.8;
+
             distEl.textContent = formatDistance(distanciaFinal);
             durEl.textContent  = formatDuration(duracaoFinal);
             infoEl.hidden = false;
@@ -275,9 +319,7 @@ async function calcularRota() {
     // ---- TENTATIVA 2: OSRM (Fallback) ----
     if (!rotaDesenhada) {
         try {
-            // OSRM público só suporta 'driving'. Usamos driving para todos e ajustamos o tempo depois.
             const url = `https://router.project-osrm.org/route/v1/driving/${startPoint.lng},${startPoint.lat};${endPoint.lng},${endPoint.lat}?overview=full&geometries=geojson`;
-            
             const res = await fetch(url);
             const data = await res.json();
 
@@ -288,12 +330,11 @@ async function calcularRota() {
                 }).addTo(map);
 
                 distanciaFinal = route.distance;
-                
-                // 🔥 CORREÇÃO MÁGICA AQUI: Forçamos o tempo a mudar mesmo usando a base do OSRM
-                if (currentMode === 'foot') duracaoFinal = distanciaFinal / 1.4; 
-                else if (currentMode === 'motorcycle') duracaoFinal = distanciaFinal / 16.6; 
-                else duracaoFinal = route.duration; // Carro usa o padrão do OSRM
-                
+
+                if (currentMode === 'foot') duracaoFinal = distanciaFinal / 1.4;
+                else if (currentMode === 'motorcycle') duracaoFinal = distanciaFinal / 16.6;
+                else duracaoFinal = route.duration;
+
                 distEl.textContent = formatDistance(distanciaFinal);
                 durEl.textContent  = formatDuration(duracaoFinal);
                 infoEl.hidden = false;
@@ -303,17 +344,22 @@ async function calcularRota() {
         } catch (err) { console.error("OSRM falhou:", err); }
     }
 
-    // ---- Finalização e Salvamento ----
+    // ---- Finalização ----
     if (rotaDesenhada) {
         const custoEstimado = calcularCusto(currentMode, distanciaFinal, duracaoFinal);
         costEl.textContent = custoEstimado === 0 ? 'Grátis' : formatCurrency(custoEstimado);
-        
-        map.fitBounds(routeLayer.getBounds(), { paddingTopLeft: [380, 60], paddingBottomRight: [60, 60] });
-        
-        // 🔥 AJUSTADO PARA MOSTRAR O MODO NO STATUS, SEM FALAR DE BANCO
+
+        // No mobile, colapsa o sheet para mostrar o trajeto
+        if (isMobileViewport()) {
+            panelEl.classList.add('collapsed');
+            setTimeout(fitRouteToViewport, 350);
+        } else {
+            fitRouteToViewport();
+        }
+
         const nomeModo = currentMode === 'foot' ? 'A pé' : currentMode === 'motorcycle' ? 'Moto' : 'Carro';
         setStatus(`Rota de ${nomeModo} calculada com sucesso!`, 'ok');
-        
+
         await salvarNoBanco(distanciaFinal, duracaoFinal, custoEstimado, fonteRota);
     } else {
         setStatus('Não foi possível calcular a rota.', 'error');
@@ -322,7 +368,6 @@ async function calcularRota() {
     loading = false; updateButtons();
 }
 
-// Salvamento silencioso no banco (sem poluir a tela)
 async function salvarNoBanco(distancia, duracao, custo, fonte) {
     try {
         const payload = {
@@ -335,7 +380,6 @@ async function salvarNoBanco(distancia, duracao, custo, fonte) {
             distancia: distancia, duracao: duracao, custo: custo,
             modo: currentMode, fonte: fonte
         };
-
         const { error } = await supabaseClient.from('historico_rotas').insert(payload);
         if (!error) console.log(`✅ Rota via ${fonte} salva no banco com sucesso!`);
     } catch (err) { console.error("❌ Erro ao salvar no banco:", err); }
